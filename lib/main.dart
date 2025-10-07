@@ -28,6 +28,7 @@ class _MyAppState extends State<MyApp> {
   
   List<Map<String, dynamic>> colors = [];
   List<Map<String, dynamic>> textStyles = [];
+  List<Map<String, dynamic>> typographyFromNodes = [];
   List<Map<String, dynamic>> components = [];
   List<Map<String, dynamic>> layouts = [];
   List<Map<String, dynamic>> designTokens = [];
@@ -46,61 +47,35 @@ class _MyAppState extends State<MyApp> {
     });
 
     try {
-      Map<String, dynamic> data;
+      Map<String, dynamic> completeSpecs;
       
-        // Always try to use specific node first - avoid full file due to size
-        if (nodeId != null && nodeId!.isNotEmpty) {
-          try {
-            final nodeResponse = await api.getNode(fileKey, nodeId!);
-            // Check if the node exists in the response
-            if (nodeResponse['nodes'] != null) {
-              // Try both formats: with dash (from URL) and with colon (from API)
-              String? actualNodeId;
-              if (nodeResponse['nodes'][nodeId!] != null) {
-                actualNodeId = nodeId!;
-              } else {
-                // Convert dash to colon format
-                final colonFormat = nodeId!.replaceAll('-', ':');
-                if (nodeResponse['nodes'][colonFormat] != null) {
-                  actualNodeId = colonFormat;
-                }
-              }
-              
-              if (actualNodeId != null) {
-                if (nodeResponse['nodes'][actualNodeId]['document'] != null) {
-                  data = nodeResponse['nodes'][actualNodeId]['document'];
-                } else {
-                  throw Exception('Node $actualNodeId found but has no document data. Node structure: ${nodeResponse['nodes'][actualNodeId].keys}');
-                }
-              } else {
-                throw Exception('Node $nodeId not found in response. Available nodes: ${nodeResponse['nodes'].keys}');
-              }
-            } else {
-              throw Exception('No nodes found in response. Response structure: ${nodeResponse.keys}');
-            }
-          } catch (nodeError) {
-            throw Exception('Could not load specific node: $nodeError');
-          }
-        } else {
-          // No node ID provided - this is not recommended for large files
-          throw Exception('Please use a URL with a specific node-id parameter to target just one component. The full file is too large.');
-        }
-      
-      // The node data might be directly the document or nested under 'document'
-      Map<String, dynamic> documentData;
-      if (data['document'] != null) {
-        documentData = data['document'];
+      // Use the proper Figma API approach
+      if (nodeId != null && nodeId!.isNotEmpty) {
+        // Convert dash to colon format for API
+        final apiNodeId = nodeId!.replaceAll('-', ':');
+        completeSpecs = await api.fetchCompleteSpecs(fileKey, apiNodeId);
       } else {
-        // Node data is directly the document
-        documentData = data;
+        throw Exception('Please use a URL with a specific node-id parameter');
       }
       
-      // Use the correct document data for parsing
+      // Extract data from complete specs
+      final nodeData = completeSpecs['node'];
+      final stylesData = completeSpecs['styles'];
+      final variablesData = completeSpecs['variables'];
+      
+      // Get the actual node document
+      final apiNodeId = nodeId!.replaceAll('-', ':');
+      final documentData = nodeData['nodes'][apiNodeId]['document'];
+      
+      
+      // Use the complete specs for parsing
       final parseData = {
         'document': documentData,
-        'styles': data['styles'] ?? {},
-        'components': data['components'] ?? {},
-        'componentSets': data['componentSets'] ?? {},
+        'styles': stylesData['meta']?['styles'] ?? {},
+        'components': nodeData['components'] ?? {},
+        'componentSets': nodeData['componentSets'] ?? {},
+        'stylesData': stylesData,
+        'variablesData': variablesData,
       };
       
       setState(() {
@@ -114,6 +89,12 @@ class _MyAppState extends State<MyApp> {
           textStyles = FigmaParser.extractTextStyles(parseData);
         } catch (e) {
           textStyles = [];
+        }
+        
+        try {
+          typographyFromNodes = FigmaParser.extractTypographyFromNodes(parseData);
+        } catch (e) {
+          typographyFromNodes = [];
         }
         
         try {
@@ -196,6 +177,7 @@ class _MyAppState extends State<MyApp> {
       showUrlInput = true;
       colors.clear();
       textStyles.clear();
+      typographyFromNodes.clear();
       components.clear();
       layouts.clear();
       designTokens.clear();
@@ -217,6 +199,11 @@ class _MyAppState extends State<MyApp> {
     if (textStyles.isNotEmpty) {
       checklistItems['Text styles extracted'] = false;
       checklistItems['Typography reviewed'] = false;
+    }
+    
+    if (typographyFromNodes.isNotEmpty) {
+      checklistItems['Typography from nodes extracted'] = false;
+      checklistItems['Text truncation patterns reviewed'] = false;
     }
     
     if (components.isNotEmpty) {
@@ -411,9 +398,9 @@ class _MyAppState extends State<MyApp> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text('Colors: ${colors.length} | Text Styles: ${textStyles.length} | Components: ${components.length} | Layouts: ${layouts.length} | Design Tokens: ${designTokens.length}'),
+                  Text('Colors: ${colors.length} | Text Styles: ${textStyles.length} | Typography Nodes: ${typographyFromNodes.length} | Components: ${components.length} | Layouts: ${layouts.length} | Design Tokens: ${designTokens.length}'),
                   const SizedBox(height: 4),
-                  Text('Total nested elements found: ${colors.length + textStyles.length + components.length + layouts.length + designTokens.length}'),
+                  Text('Total nested elements found: ${colors.length + textStyles.length + typographyFromNodes.length + components.length + layouts.length + designTokens.length}'),
                 ],
               ),
             ),
@@ -493,6 +480,8 @@ class _MyAppState extends State<MyApp> {
           const SizedBox(height: 24),
           _buildSpecsSection('🔤 Text Styles', textStyles, _buildTextStyleSpec),
           const SizedBox(height: 24),
+          _buildSpecsSection('📝 Typography & Ellipses', typographyFromNodes, _buildTypographySpec),
+          const SizedBox(height: 24),
           _buildSpecsSection('🧩 Components', components, _buildComponentSpec),
           const SizedBox(height: 24),
           _buildSpecsSection('📐 Layout Specs', layouts, _buildLayoutSpec),
@@ -544,7 +533,7 @@ class _MyAppState extends State<MyApp> {
                 children: items.asMap().entries.map((entry) {
                   final index = entry.key;
                   final item = entry.value;
-                  final itemKey = '${title}_${index}';
+                  final itemKey = '$title\_$index';
                   final isChecked = checklistItems[itemKey] ?? false;
                   final specItems = specBuilder(item);
                   
@@ -565,12 +554,12 @@ class _MyAppState extends State<MyApp> {
                                   // If checking main item, check all sub-items
                                   if (value == true) {
                                     for (int i = 0; i < specItems.length; i++) {
-                                      checklistItems['${itemKey}_sub_$i'] = true;
+                                      checklistItems['$itemKey\_sub\_$i'] = true;
                                     }
                                   } else {
                                     // If unchecking main item, uncheck all sub-items
                                     for (int i = 0; i < specItems.length; i++) {
-                                      checklistItems['${itemKey}_sub_$i'] = false;
+                                      checklistItems['$itemKey\_sub\_$i'] = false;
                                     }
                                   }
                                 });
@@ -599,7 +588,7 @@ class _MyAppState extends State<MyApp> {
                             children: specItems.asMap().entries.map((specEntry) {
                               final specIndex = specEntry.key;
                               final specItem = specEntry.value;
-                              final subItemKey = '${itemKey}_sub_$specIndex';
+                              final subItemKey = '$itemKey\_sub\_$specIndex';
                               final isSubChecked = checklistItems[subItemKey] ?? false;
                               
                               return Padding(
@@ -614,7 +603,7 @@ class _MyAppState extends State<MyApp> {
                                           checklistItems[subItemKey] = value ?? false;
                                           // Check if all sub-items are checked to update main item
                                           final allSubChecked = specItems.asMap().entries.every((e) => 
-                                            checklistItems['${itemKey}_sub_${e.key}'] == true);
+                                            checklistItems['$itemKey\_sub\_${e.key}'] == true);
                                           checklistItems[itemKey] = allSubChecked;
                                         });
                                       },
@@ -656,7 +645,7 @@ class _MyAppState extends State<MyApp> {
     final rgb = 'rgb(${color['r']}, ${color['g']}, ${color['b']})';
     final rgba = 'rgba(${color['r']}, ${color['g']}, ${color['b']}, ${color['a']})';
     final opacity = color['opacity'] != null ? ' (${(color['opacity'] * 100).round()}% opacity)' : '';
-    final path = (color['path']?.isNotEmpty ?? false) ? ' [${color['path']}]' : '';
+    // final path = (color['path']?.isNotEmpty ?? false) ? ' [${color['path']}]' : '';
     
     return [
       {'text': 'Hex: $hex', 'type': 'hex'},
@@ -669,10 +658,10 @@ class _MyAppState extends State<MyApp> {
   List<Map<String, dynamic>> _buildTextStyleSpec(Map<String, dynamic> style) {
     final fontSize = style['fontSize'] != null ? '${style['fontSize']}px' : 'Unknown';
     final fontWeight = style['fontWeight'] != null ? '${style['fontWeight']}' : 'Unknown';
-    final fontFamily = style['fontFamily'] != null ? style['fontFamily'] : 'Unknown';
+    final fontFamily = style['fontFamily'] ?? 'Unknown';
     final lineHeight = style['lineHeight'] != null ? '${style['lineHeight']}px' : 'Auto';
     final letterSpacing = style['letterSpacing'] != null ? '${style['letterSpacing']}px' : 'Normal';
-    final textAlign = style['textAlign'] != null ? style['textAlign'] : 'Left';
+    final textAlign = style['textAlign'] ?? 'Left';
     
     return [
       {'text': 'Font Family: $fontFamily', 'type': 'font_family'},
@@ -685,15 +674,87 @@ class _MyAppState extends State<MyApp> {
     ];
   }
 
+  List<Map<String, dynamic>> _buildTypographySpec(Map<String, dynamic> typography) {
+    final fontSize = typography['fontSize'] != null ? '${typography['fontSize']}px' : 'Unknown';
+    final fontWeight = typography['fontWeight'] != null ? '${typography['fontWeight']}' : 'Unknown';
+    final fontFamily = typography['fontFamily'] ?? 'Unknown';
+    final lineHeight = typography['lineHeight'] != null ? '${typography['lineHeight']}px' : 'Auto';
+    final letterSpacing = typography['letterSpacing'] != null ? '${typography['letterSpacing']}px' : 'Normal';
+    final textAlignHorizontal = typography['textAlignHorizontal'] ?? 'LEFT';
+    final textAlignVertical = typography['textAlignVertical'] ?? 'TOP';
+    final textAutoResize = typography['textAutoResize'] ?? 'NONE';
+    final textCase = typography['textCase'] ?? 'ORIGINAL';
+    final textDecoration = typography['textDecoration'] ?? 'NONE';
+    final characters = typography['characters'] ?? '';
+    final hasEllipses = typography['hasEllipses'] ?? false;
+    final ellipsesType = typography['ellipsesType'] ?? 'none';
+    final ellipsesPosition = typography['ellipsesPosition'] ?? 'none';
+    final maxLines = typography['maxLines'];
+    // final path = typography['path'] != null && typography['path'].isNotEmpty ? ' [${typography['path']}]' : '';
+    
+    List<Map<String, dynamic>> specItems = [
+      {'text': 'Font Family: $fontFamily', 'type': 'font_family'},
+      {'text': 'Font Size: $fontSize', 'type': 'font_size'},
+      {'text': 'Font Weight: $fontWeight', 'type': 'font_weight'},
+      {'text': 'Line Height: $lineHeight', 'type': 'line_height'},
+      {'text': 'Letter Spacing: $letterSpacing', 'type': 'letter_spacing'},
+      {'text': 'Text Align Horizontal: $textAlignHorizontal', 'type': 'text_align_horizontal'},
+      {'text': 'Text Align Vertical: $textAlignVertical', 'type': 'text_align_vertical'},
+      {'text': 'Text Auto Resize: $textAutoResize', 'type': 'text_auto_resize'},
+      {'text': 'Text Case: $textCase', 'type': 'text_case'},
+      {'text': 'Text Decoration: $textDecoration', 'type': 'text_decoration'},
+    ];
+    
+    if (characters.isNotEmpty) {
+      specItems.add({'text': 'Text Content: "$characters"', 'type': 'text_content'});
+    }
+    
+    // Ellipses and truncation information
+    if (hasEllipses) {
+      specItems.add({'text': '⚠️ HAS ELLIPSES: $ellipsesType at $ellipsesPosition', 'type': 'ellipses_warning'});
+      specItems.add({'text': 'Ellipses Type: $ellipsesType', 'type': 'ellipses_type'});
+      specItems.add({'text': 'Ellipses Position: $ellipsesPosition', 'type': 'ellipses_position'});
+    } else {
+      specItems.add({'text': '✅ No ellipses detected', 'type': 'ellipses_none'});
+    }
+    
+    if (maxLines != null) {
+      specItems.add({'text': 'Max Lines: $maxLines', 'type': 'max_lines'});
+    }
+    
+    // Layout constraints
+    if (typography['constraints'] != null) {
+      specItems.add({'text': 'Constraints: ${typography['constraints']}', 'type': 'constraints'});
+    }
+    
+    if (typography['layoutAlign'] != null) {
+      specItems.add({'text': 'Layout Align: ${typography['layoutAlign']}', 'type': 'layout_align'});
+    }
+    
+    if (typography['layoutGrow'] != null) {
+      specItems.add({'text': 'Layout Grow: ${typography['layoutGrow']}', 'type': 'layout_grow'});
+    }
+    
+    if (typography['layoutSizingHorizontal'] != null) {
+      specItems.add({'text': 'Layout Sizing Horizontal: ${typography['layoutSizingHorizontal']}', 'type': 'layout_sizing_horizontal'});
+    }
+    
+    if (typography['layoutSizingVertical'] != null) {
+      specItems.add({'text': 'Layout Sizing Vertical: ${typography['layoutSizingVertical']}', 'type': 'layout_sizing_vertical'});
+    }
+    
+    return specItems;
+  }
+
   List<Map<String, dynamic>> _buildComponentSpec(Map<String, dynamic> component) {
     final width = component['width'] != null ? '${component['width']}px' : 'Auto';
     final height = component['height'] != null ? '${component['height']}px' : 'Auto';
-    final layoutMode = component['layoutMode'] != null ? component['layoutMode'] : 'None';
-    final path = (component['path']?.isNotEmpty ?? false) ? ' [${component['path']}]' : '';
+    final layoutMode = component['layoutMode'] ?? 'None';
+    // final path = (component['path']?.isNotEmpty ?? false) ? ' [${component['path']}]' : '';
     
     List<Map<String, dynamic>> specItems = [
       {'text': 'Type: ${component['type']}', 'type': 'type'},
-      {'text': 'Dimensions: ${width} × ${height}', 'type': 'dimensions'},
+      {'text': 'Dimensions: $width × $height', 'type': 'dimensions'},
       {'text': 'Layout Mode: $layoutMode', 'type': 'layout_mode'},
     ];
     
@@ -723,11 +784,11 @@ class _MyAppState extends State<MyApp> {
     final height = layout['height'] != null ? '${layout['height']}px' : 'Auto';
     final x = layout['x'] != null ? '${layout['x']}px' : '0';
     final y = layout['y'] != null ? '${layout['y']}px' : '0';
-    final layoutMode = layout['layoutMode'] != null ? layout['layoutMode'] : 'None';
-    final path = (layout['path']?.isNotEmpty ?? false) ? ' [${layout['path']}]' : '';
-    final depth = layout['depth'] != null ? ' (Depth: ${layout['depth']})' : '';
-    final visible = layout['visible'] == false ? ' [HIDDEN]' : '';
-    final locked = layout['locked'] == true ? ' [LOCKED]' : '';
+    final layoutMode = layout['layoutMode'] ?? 'None';
+    // final path = (layout['path']?.isNotEmpty ?? false) ? ' [${layout['path']}]' : '';
+    // final depth = layout['depth'] != null ? ' (Depth: ${layout['depth']})' : '';
+    // final visible = layout['visible'] == false ? ' [HIDDEN]' : '';
+    // final locked = layout['locked'] == true ? ' [LOCKED]' : '';
     
     List<Map<String, dynamic>> specItems = [
       {'text': 'Type: ${layout['type']}', 'type': 'type'},
@@ -735,7 +796,7 @@ class _MyAppState extends State<MyApp> {
     
     if (layout['width'] != null && layout['height'] != null) {
       specItems.add({'text': 'Position: ($x, $y)', 'type': 'position'});
-      specItems.add({'text': 'Dimensions: ${width} × ${height}', 'type': 'dimensions'});
+      specItems.add({'text': 'Dimensions: $width × $height', 'type': 'dimensions'});
     }
     
     if (layout['layoutMode'] != null) {
@@ -859,11 +920,23 @@ class _MyAppState extends State<MyApp> {
     }
     
     if (textStyles.isNotEmpty) {
-      allSpecs.writeln('🔤 TYPOGRAPHY SYSTEM');
+      allSpecs.writeln('🔤 TEXT STYLES');
       allSpecs.writeln('─' * 30);
       for (final style in textStyles) {
         allSpecs.writeln('• ${style['name']}');
         for (final spec in _buildTextStyleSpec(style)) {
+          allSpecs.writeln('  ${spec['text']}');
+        }
+        allSpecs.writeln();
+      }
+    }
+    
+    if (typographyFromNodes.isNotEmpty) {
+      allSpecs.writeln('📝 TYPOGRAPHY & ELLIPSES ANALYSIS');
+      allSpecs.writeln('─' * 30);
+      for (final typography in typographyFromNodes) {
+        allSpecs.writeln('• ${typography['name']}${typography['path'] != null && typography['path'].isNotEmpty ? ' [${typography['path']}]' : ''}');
+        for (final spec in _buildTypographySpec(typography)) {
           allSpecs.writeln('  ${spec['text']}');
         }
         allSpecs.writeln();
@@ -911,9 +984,13 @@ class _MyAppState extends State<MyApp> {
     allSpecs.writeln('Generated by Figma Spec Tool');
     
     Clipboard.setData(ClipboardData(text: allSpecs.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('All specs copied to clipboard!')),
-    );
+    // Use a try-catch to handle ScaffoldMessenger issues
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All specs copied to clipboard!')),
+      );
+    } catch (e) {
+    }
   }
 
   void _copySectionSpecs(String title, List<Map<String, dynamic>> items, String Function(Map<String, dynamic>) specBuilder) {

@@ -16,10 +16,138 @@ class FigmaParser {
           'letterSpacing': value['style']?['letterSpacing'] ?? 'Unknown',
           'textAlign': value['style']?['textAlignHorizontal'] ?? 'Unknown',
           'textDecoration': value['style']?['textDecoration'] ?? 'Unknown',
+          'textCase': value['style']?['textCase'] ?? 'ORIGINAL',
+          'textAutoResize': value['style']?['textAutoResize'] ?? 'NONE',
         });
       }
     });
     return styles;
+  }
+
+  // Enhanced method to extract typography from actual text nodes
+  static List<Map<String, dynamic>> extractTypographyFromNodes(Map<String, dynamic> file) {
+    final typography = <Map<String, dynamic>>[];
+    
+    void parseNode(Map<String, dynamic> node, String parentPath, [int depth = 0]) {
+      if (node['type'] == 'TEXT') {
+        final style = node['style'];
+        final characters = node['characters'] ?? '';
+        final textAutoResize = node['textAutoResize'] ?? 'NONE';
+        final textAlignHorizontal = node['textAlignHorizontal'] ?? 'LEFT';
+        final textAlignVertical = node['textAlignVertical'] ?? 'TOP';
+        
+        
+        
+        // Detect ellipses/truncation
+        final hasEllipses = _detectEllipses(characters, node);
+        
+        typography.add({
+          'name': node['name'] ?? 'Unnamed Text',
+          'type': 'TEXT',
+          'path': parentPath,
+          'characters': characters,
+          'hasEllipses': hasEllipses['hasEllipses'],
+          'ellipsesType': hasEllipses['type'],
+          'ellipsesPosition': hasEllipses['position'],
+          'fontFamily': style?['fontFamily'] ?? 'Unknown',
+          'fontSize': style?['fontSize'] ?? 'Unknown',
+          'fontWeight': style?['fontWeight'] ?? 'Unknown',
+          'lineHeight': style?['lineHeightPx'] ?? 'Unknown',
+          'letterSpacing': style?['letterSpacing'] ?? 'Unknown',
+          'textAlignHorizontal': textAlignHorizontal,
+          'textAlignVertical': textAlignVertical,
+          'textAutoResize': textAutoResize,
+          'textCase': style?['textCase'] ?? 'ORIGINAL',
+          'textDecoration': style?['textDecoration'] ?? 'NONE',
+          'maxLines': node['maxLines'],
+          'textStyleId': node['styleId'],
+          'fills': node['fills'],
+          'constraints': node['constraints'],
+          'layoutAlign': node['layoutAlign'],
+          'layoutGrow': node['layoutGrow'],
+          'layoutSizingHorizontal': node['layoutSizingHorizontal'],
+          'layoutSizingVertical': node['layoutSizingVertical'],
+        });
+      }
+      
+      if (node['children'] != null) {
+        final currentPath = parentPath.isEmpty ? node['name'] : '$parentPath > ${node['name']}';
+        for (var child in node['children']) {
+          parseNode(child as Map<String, dynamic>, currentPath, depth + 1);
+        }
+      } else {
+      }
+    }
+
+    parseNode(file['document'] as Map<String, dynamic>, '', 0);
+    return typography;
+  }
+
+  // Helper method to detect ellipses patterns
+  static Map<String, dynamic> _detectEllipses(String text, Map<String, dynamic> node) {
+    final result = {
+      'hasEllipses': false,
+      'type': 'none',
+      'position': 'none',
+    };
+    
+    if (text.isEmpty) return result;
+    
+    // Check for explicit ellipses patterns
+    if (text.contains('...')) {
+      result['hasEllipses'] = true;
+      result['type'] = 'explicit';
+      
+      if (text.endsWith('...')) {
+        result['position'] = 'end';
+      } else if (text.startsWith('...')) {
+        result['position'] = 'start';
+      } else if (text.contains('...')) {
+        result['position'] = 'middle';
+      }
+    }
+    
+    // Check for text truncation indicators
+    if (text.contains('…')) {
+      result['hasEllipses'] = true;
+      result['type'] = 'unicode_ellipsis';
+      
+      if (text.endsWith('…')) {
+        result['position'] = 'end';
+      } else if (text.startsWith('…')) {
+        result['position'] = 'start';
+      } else if (text.contains('…')) {
+        result['position'] = 'middle';
+      }
+    }
+    
+    // Check for text that might be truncated based on length and container constraints
+    final maxLines = node['maxLines'];
+    
+    // If text has maxLines constraint and is long, it might be truncated
+    if (maxLines != null && text.length > 50) {
+      result['hasEllipses'] = true;
+      result['type'] = 'constrained';
+      result['position'] = 'end';
+    }
+    
+    // Check for text that appears to be cut off (common patterns)
+    final suspiciousPatterns = [
+      RegExp(r'long\s+long\s+long\.{3,}$'), // "long long long..." pattern
+      RegExp(r'\.{3,}$'), // Multiple dots at end
+      RegExp(r'[a-zA-Z]+\s+[a-zA-Z]+\s+[a-zA-Z]+\.{2,}$'), // Word word word.. pattern
+    ];
+    
+    for (var pattern in suspiciousPatterns) {
+      if (pattern.hasMatch(text)) {
+        result['hasEllipses'] = true;
+        result['type'] = 'pattern_detected';
+        result['position'] = 'end';
+        break;
+      }
+    }
+    
+    return result;
   }
 
   static List<Map<String, dynamic>> extractColors(Map<String, dynamic> file) {
@@ -352,6 +480,172 @@ class FigmaParser {
 
     parseNode(file['document'], '', 0);
     return tokens;
+  }
+
+  // Method to extract typography with style resolution
+  static List<Map<String, dynamic>> extractTypographyWithStyles(Map<String, dynamic> file) {
+    final typography = <Map<String, dynamic>>[];
+    final stylesData = file['stylesData'];
+    
+    if (stylesData == null || stylesData['meta']?['styles'] == null) {
+      return typography;
+    }
+    
+    // Create a map of style keys to style names
+    final styleMap = <String, String>{};
+    for (final style in stylesData['meta']['styles']) {
+      if (style['style_type'] == 'TEXT') {
+        styleMap[style['key']] = style['name'];
+      }
+    }
+    
+    // Now traverse the document to find TEXT nodes
+    void parseNode(Map<String, dynamic> node, String parentPath, [int depth = 0]) {
+      if (node['type'] == 'TEXT') {
+        final style = node['style'];
+        final characters = node['characters'] ?? '';
+        final textStyleId = style?['textStyleId'];
+        
+        
+        // Resolve the style name
+        String styleName = 'Unknown Style';
+        if (textStyleId != null && styleMap.containsKey(textStyleId)) {
+          styleName = styleMap[textStyleId]!;
+        }
+        
+        // Detect ellipses/truncation
+        final hasEllipses = _detectEllipses(characters, node);
+        
+        typography.add({
+          'name': node['name'] ?? 'Unnamed Text',
+          'type': 'TEXT',
+          'path': parentPath,
+          'characters': characters,
+          'hasEllipses': hasEllipses['hasEllipses'],
+          'ellipsesType': hasEllipses['type'],
+          'ellipsesPosition': hasEllipses['position'],
+          'styleName': styleName,
+          'textStyleId': textStyleId,
+          'fontFamily': style?['fontFamily'] ?? 'Unknown',
+          'fontSize': style?['fontSize'] ?? 'Unknown',
+          'fontWeight': style?['fontWeight'] ?? 'Unknown',
+          'lineHeight': style?['lineHeightPx'] ?? 'Unknown',
+          'letterSpacing': style?['letterSpacing'] ?? 'Unknown',
+          'textAlignHorizontal': node['textAlignHorizontal'] ?? 'LEFT',
+          'textAlignVertical': node['textAlignVertical'] ?? 'TOP',
+          'textAutoResize': node['textAutoResize'] ?? 'NONE',
+          'textCase': style?['textCase'] ?? 'ORIGINAL',
+          'textDecoration': style?['textDecoration'] ?? 'NONE',
+          'maxLines': node['maxLines'],
+          'fills': node['fills'],
+          'constraints': node['constraints'],
+          'layoutAlign': node['layoutAlign'],
+          'layoutGrow': node['layoutGrow'],
+          'layoutSizingHorizontal': node['layoutSizingHorizontal'],
+          'layoutSizingVertical': node['layoutSizingVertical'],
+        });
+      }
+      
+      if (node['children'] != null) {
+        final currentPath = parentPath.isEmpty ? node['name'] : '$parentPath > ${node['name']}';
+        for (var child in node['children']) {
+          parseNode(child as Map<String, dynamic>, currentPath, depth + 1);
+        }
+      }
+    }
+    
+    parseNode(file['document'] as Map<String, dynamic>, '', 0);
+    return typography;
+  }
+
+  // Method to extract typography from variables and styles
+  static List<Map<String, dynamic>> extractTypographyFromVariables(Map<String, dynamic> file) {
+    final typography = <Map<String, dynamic>>[];
+    
+    // Check for bound variables
+    if (file['boundVariables'] != null) {
+      for (var variable in file['boundVariables'].values) {
+        if (variable['type'] == 'STRING') {
+        }
+      }
+    }
+    
+    // Check for variables in the document
+    if (file['variables'] != null) {
+      for (var variable in file['variables'].values) {
+        if (variable['resolvedType'] == 'STRING') {
+          typography.add({
+            'name': 'Variable: ${variable['name']}',
+            'type': 'VARIABLE',
+            'path': 'Variables',
+            'characters': variable['valuesByMode']?.values?.first?.toString() ?? '',
+            'hasEllipses': _detectEllipses(variable['valuesByMode']?.values?.first?.toString() ?? '', {}).values.first,
+            'ellipsesType': 'variable',
+            'ellipsesPosition': 'unknown',
+            'fontFamily': 'Variable',
+            'fontSize': 'Variable',
+            'fontWeight': 'Variable',
+            'lineHeight': 'Variable',
+            'letterSpacing': 'Variable',
+            'textAlignHorizontal': 'Variable',
+            'textAlignVertical': 'Variable',
+            'textAutoResize': 'Variable',
+            'textCase': 'Variable',
+            'textDecoration': 'Variable',
+            'isVariable': true,
+            'variableId': variable['id'],
+            'variableName': variable['name'],
+          });
+        }
+      }
+    }
+    
+    return typography;
+  }
+
+  // Alternative method to extract typography from layout specs
+  static List<Map<String, dynamic>> extractTypographyFromLayouts(List<Map<String, dynamic>> layouts) {
+    final typography = <Map<String, dynamic>>[];
+    
+    for (final layout in layouts) {
+      if (layout['type'] == 'TEXT' && layout['textContent'] != null && layout['textContent'].isNotEmpty) {
+        final textContent = layout['textContent'] as String;
+        final textStyle = layout['textStyle'];
+        
+        // Detect ellipses/truncation
+        final hasEllipses = _detectEllipses(textContent, layout);
+        
+        typography.add({
+          'name': layout['name'] ?? 'Unnamed Text',
+          'type': 'TEXT',
+          'path': layout['path'] ?? '',
+          'characters': textContent,
+          'hasEllipses': hasEllipses['hasEllipses'],
+          'ellipsesType': hasEllipses['type'],
+          'ellipsesPosition': hasEllipses['position'],
+          'fontFamily': textStyle?['fontFamily'] ?? 'Unknown',
+          'fontSize': textStyle?['fontSize'] ?? 'Unknown',
+          'fontWeight': textStyle?['fontWeight'] ?? 'Unknown',
+          'lineHeight': textStyle?['lineHeightPx'] ?? 'Unknown',
+          'letterSpacing': textStyle?['letterSpacing'] ?? 'Unknown',
+          'textAlignHorizontal': layout['textAlignHorizontal'] ?? 'LEFT',
+          'textAlignVertical': layout['textAlignVertical'] ?? 'TOP',
+          'textAutoResize': layout['textAutoResize'] ?? 'NONE',
+          'textCase': textStyle?['textCase'] ?? 'ORIGINAL',
+          'textDecoration': textStyle?['textDecoration'] ?? 'NONE',
+          'maxLines': layout['maxLines'],
+          'textStyleId': textStyle?['styleId'],
+          'fills': layout['fills'],
+          'constraints': layout['constraints'],
+          'layoutAlign': layout['layoutAlign'],
+          'layoutGrow': layout['layoutGrow'],
+          'layoutSizingHorizontal': layout['layoutSizingHorizontal'],
+          'layoutSizingVertical': layout['layoutSizingVertical'],
+        });
+      }
+    }
+    
+    return typography;
   }
 
   static String _rgbToHex(int r, int g, int b) {
