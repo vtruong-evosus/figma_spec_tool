@@ -990,6 +990,7 @@ class _MyAppState extends State<MyApp> {
         const SnackBar(content: Text('All specs copied to clipboard!')),
       );
     } catch (e) {
+      // Ignore snackbar errors
     }
   }
 
