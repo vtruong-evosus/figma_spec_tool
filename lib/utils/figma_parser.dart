@@ -266,17 +266,19 @@ class FigmaParser {
     return layouts;
   }
 
-  // New method to extract design tokens with better nesting support
+  // Enhanced method to extract design tokens with semantic names and variables
   static List<Map<String, dynamic>> extractDesignTokens(Map<String, dynamic> file) {
     final tokens = <Map<String, dynamic>>[];
+    final variables = file['variables'] ?? {};
+    final styles = file['styles'] ?? {};
     
     void parseNode(Map node, String parentPath, int depth) {
-      // Extract color tokens
+      // Extract color tokens with semantic references
       if (node['fills'] != null) {
         for (var fill in node['fills']) {
           if (fill['type'] == 'SOLID') {
             final c = fill['color'];
-            tokens.add({
+            final tokenData = {
               'name': node['name'],
               'type': 'color',
               'path': parentPath,
@@ -292,7 +294,24 @@ class FigmaParser {
                   (c['b'] * 255).round(),
                 ),
               },
-            });
+            };
+            
+            // Check for variable references
+            if (fill['boundVariables'] != null) {
+              tokenData['variableReferences'] = fill['boundVariables'];
+              tokenData['semanticName'] = _extractVariableName(fill['boundVariables'], variables);
+            }
+            
+            // Check for style references
+            if (node['styles'] != null && node['styles']['fill'] != null) {
+              final styleKey = node['styles']['fill'];
+              if (styles[styleKey] != null) {
+                tokenData['styleReference'] = styles[styleKey]['name'];
+                tokenData['styleDescription'] = styles[styleKey]['description'] ?? '';
+              }
+            }
+            
+            tokens.add(tokenData);
           }
         }
       }
@@ -314,9 +333,9 @@ class FigmaParser {
         });
       }
 
-      // Extract typography tokens
+      // Extract typography tokens with semantic references
       if (node['style'] != null) {
-        tokens.add({
+        final tokenData = {
           'name': '${node['name']} Typography',
           'type': 'typography',
           'path': parentPath,
@@ -327,8 +346,27 @@ class FigmaParser {
             'fontWeight': node['style']['fontWeight'],
             'lineHeight': node['style']['lineHeightPx'],
             'letterSpacing': node['style']['letterSpacing'],
+            'textAlign': node['style']['textAlignHorizontal'],
+            'textDecoration': node['style']['textDecoration'],
           },
-        });
+        };
+        
+        // Check for variable references in typography
+        if (node['boundVariables'] != null) {
+          tokenData['variableReferences'] = node['boundVariables'];
+          tokenData['semanticName'] = _extractVariableName(node['boundVariables'], variables);
+        }
+        
+        // Check for style references
+        if (node['styles'] != null && node['styles']['text'] != null) {
+          final styleKey = node['styles']['text'];
+          if (styles[styleKey] != null) {
+            tokenData['styleReference'] = styles[styleKey]['name'];
+            tokenData['styleDescription'] = styles[styleKey]['description'] ?? '';
+          }
+        }
+        
+        tokens.add(tokenData);
       }
 
       // Extract border radius tokens
@@ -356,5 +394,114 @@ class FigmaParser {
 
   static String _rgbToHex(int r, int g, int b) {
     return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
+  }
+  
+  // Extract semantic variable names from bound variables
+  static String _extractVariableName(Map<String, dynamic> boundVariables, Map<String, dynamic> variables) {
+    for (var key in boundVariables.keys) {
+      final variableId = boundVariables[key]['id'];
+      if (variables[variableId] != null) {
+        return variables[variableId]['name'] ?? 'Unknown Variable';
+      }
+    }
+    return 'Unknown Variable';
+  }
+  
+  // Extract Figma Variables (Design System Tokens)
+  static List<Map<String, dynamic>> extractFigmaVariables(Map<String, dynamic> file) {
+    final variables = <Map<String, dynamic>>[];
+    final figmaVariables = file['variables'] ?? {};
+    
+    figmaVariables.forEach((key, variable) {
+      variables.add({
+        'id': key,
+        'name': variable['name'],
+        'description': variable['description'] ?? '',
+        'type': variable['resolvedType'],
+        'value': variable['valuesByMode'],
+        'hiddenFromPublishing': variable['hiddenFromPublishing'] ?? false,
+        'scopes': variable['scopes'] ?? [],
+        'codeSyntax': variable['codeSyntax'] ?? {},
+      });
+    });
+    
+    return variables;
+  }
+  
+  // Extract Component Properties and Variants
+  static List<Map<String, dynamic>> extractComponentProperties(Map<String, dynamic> file) {
+    final properties = <Map<String, dynamic>>[];
+    
+    void parseNode(Map node, String parentPath, int depth) {
+      if (node['type'] == 'COMPONENT' || node['type'] == 'COMPONENT_SET') {
+        final componentData = {
+          'name': node['name'],
+          'type': node['type'],
+          'id': node['id'],
+          'description': node['description'] ?? '',
+          'path': parentPath,
+          'depth': depth,
+          'width': node['absoluteBoundingBox']?['width'],
+          'height': node['absoluteBoundingBox']?['height'],
+          'constraints': node['constraints'],
+          'layoutMode': node['layoutMode'],
+          'primaryAxisAlignItems': node['primaryAxisAlignItems'],
+          'counterAxisAlignItems': node['counterAxisAlignItems'],
+          'paddingLeft': node['paddingLeft'],
+          'paddingRight': node['paddingRight'],
+          'paddingTop': node['paddingTop'],
+          'paddingBottom': node['paddingBottom'],
+          'itemSpacing': node['itemSpacing'],
+          'children': <Map<String, dynamic>>[],
+        };
+        
+        // Extract component properties
+        if (node['componentPropertyDefinitions'] != null) {
+          componentData['properties'] = node['componentPropertyDefinitions'];
+        }
+        
+        // Extract variant properties for component sets
+        if (node['type'] == 'COMPONENT_SET' && node['children'] != null) {
+          componentData['variants'] = node['children'].map<Map<String, dynamic>>((variant) => {
+            'name': variant['name'],
+            'id': variant['id'],
+            'description': variant['description'] ?? '',
+            'width': variant['absoluteBoundingBox']?['width'],
+            'height': variant['absoluteBoundingBox']?['height'],
+            'variantProperties': variant['variantProperties'] ?? {},
+            'boundVariables': variant['boundVariables'] ?? {},
+          }).toList();
+        }
+        
+        // Extract nested components
+        if (node['children'] != null) {
+          for (var child in node['children']) {
+            if (child['type'] == 'COMPONENT' || child['type'] == 'COMPONENT_SET') {
+              componentData['children'].add({
+                'name': child['name'],
+                'type': child['type'],
+                'id': child['id'],
+                'width': child['absoluteBoundingBox']?['width'],
+                'height': child['absoluteBoundingBox']?['height'],
+                'variantProperties': child['variantProperties'] ?? {},
+                'boundVariables': child['boundVariables'] ?? {},
+              });
+            }
+          }
+        }
+        
+        properties.add(componentData);
+      }
+      
+      if (node['children'] != null) {
+        final currentPath = parentPath.isEmpty ? node['name'] : '$parentPath > ${node['name']}';
+        for (var child in node['children']) {
+          parseNode(child, currentPath, depth + 1);
+        }
+      }
+    }
+    
+    parseNode(file['document'], '', 0);
+    return properties;
   }
 }

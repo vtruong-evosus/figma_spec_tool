@@ -31,6 +31,8 @@ class _MyAppState extends State<MyApp> {
   List<Map<String, dynamic>> components = [];
   List<Map<String, dynamic>> layouts = [];
   List<Map<String, dynamic>> designTokens = [];
+  List<Map<String, dynamic>> figmaVariables = [];
+  List<Map<String, dynamic>> componentProperties = [];
   
   // Checklist state
   Map<String, bool> checklistItems = {};
@@ -96,12 +98,31 @@ class _MyAppState extends State<MyApp> {
       }
       
       // Use the correct document data for parsing
-      final parseData = {
+      Map<String, dynamic> parseData = {
         'document': documentData,
         'styles': data['styles'] ?? {},
         'components': data['components'] ?? {},
         'componentSets': data['componentSets'] ?? {},
+        'variables': data['variables'] ?? {},
       };
+      
+      print('DEBUG: Parse data keys: ${parseData.keys}');
+      print('DEBUG: Variables available: ${data['variables'] != null ? 'Yes' : 'No'}');
+      print('DEBUG: Styles available: ${data['styles'] != null ? 'Yes' : 'No'}');
+      
+      // If no variables found in node data, try to get them from the full file
+      if (data['variables'] == null || data['variables'].isEmpty) {
+        print('DEBUG: No variables in node data, trying full file...');
+        try {
+          final fullFileData = await api.getFileWithVariables(fileKey);
+          if (fullFileData['variables'] != null) {
+            parseData['variables'] = fullFileData['variables'];
+            print('DEBUG: Found ${fullFileData['variables'].length} variables in full file');
+          }
+        } catch (e) {
+          print('DEBUG: Could not get full file variables: $e');
+        }
+      }
       
       setState(() {
         try {
@@ -132,6 +153,22 @@ class _MyAppState extends State<MyApp> {
           designTokens = FigmaParser.extractDesignTokens(parseData);
         } catch (e) {
           designTokens = [];
+        }
+        
+        try {
+          figmaVariables = FigmaParser.extractFigmaVariables(parseData);
+          print('DEBUG: Found ${figmaVariables.length} Figma variables');
+        } catch (e) {
+          print('DEBUG: Error extracting Figma variables: $e');
+          figmaVariables = [];
+        }
+        
+        try {
+          componentProperties = FigmaParser.extractComponentProperties(parseData);
+          print('DEBUG: Found ${componentProperties.length} component properties');
+        } catch (e) {
+          print('DEBUG: Error extracting component properties: $e');
+          componentProperties = [];
         }
         
         isLoading = false;
@@ -199,6 +236,8 @@ class _MyAppState extends State<MyApp> {
       components.clear();
       layouts.clear();
       designTokens.clear();
+      figmaVariables.clear();
+      componentProperties.clear();
       checklistItems.clear();
       errorMessage = null;
       urlController.clear();
@@ -234,6 +273,16 @@ class _MyAppState extends State<MyApp> {
       checklistItems['Design system reviewed'] = false;
     }
     
+    if (figmaVariables.isNotEmpty) {
+      checklistItems['Figma variables extracted'] = false;
+      checklistItems['Design system variables reviewed'] = false;
+    }
+    
+    if (componentProperties.isNotEmpty) {
+      checklistItems['Component properties extracted'] = false;
+      checklistItems['Component variants reviewed'] = false;
+    }
+    
     // General UX checklist items
     checklistItems['Design specs extracted'] = false;
     checklistItems['UI components identified'] = false;
@@ -242,6 +291,8 @@ class _MyAppState extends State<MyApp> {
     checklistItems['Spacing system documented'] = false;
     checklistItems['Component library reviewed'] = false;
     checklistItems['Design tokens documented'] = false;
+    checklistItems['Semantic tokens identified'] = false;
+    checklistItems['Component variants documented'] = false;
     checklistItems['Accessibility considerations noted'] = false;
     checklistItems['Responsive behavior documented'] = false;
     checklistItems['Interaction states documented'] = false;
@@ -498,6 +549,10 @@ class _MyAppState extends State<MyApp> {
           _buildSpecsSection('📐 Layout Specs', layouts, _buildLayoutSpec),
           const SizedBox(height: 24),
           _buildSpecsSection('🎯 Design Tokens', designTokens, _buildDesignTokenSpec),
+          const SizedBox(height: 24),
+          _buildSpecsSection('🔧 Figma Variables', figmaVariables, _buildFigmaVariableSpec),
+          const SizedBox(height: 24),
+          _buildSpecsSection('⚙️ Component Properties', componentProperties, _buildComponentPropertySpec),
         ],
       ),
     );
@@ -514,13 +569,14 @@ class _MyAppState extends State<MyApp> {
           children: [
             Row(
               children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 ElevatedButton.icon(
                   onPressed: () => _copySectionSpecs(title, items, (item) => specBuilder(item).map((e) => e['text']).join('\n')),
                   icon: const Icon(Icons.copy, size: 16),
@@ -830,11 +886,95 @@ class _MyAppState extends State<MyApp> {
     final type = token['type'] ?? 'Unknown';
     final path = token['path'] != null && token['path'].isNotEmpty ? ' [${token['path']}]' : '';
     
-    return [
+    List<Map<String, dynamic>> specItems = [
       {'text': 'Value: $value', 'type': 'value'},
       {'text': 'Type: $type', 'type': 'type'},
       {'text': 'Depth: ${token['depth'] ?? 0}', 'type': 'depth'},
     ];
+    
+    // Add semantic name if available
+    if (token['semanticName'] != null) {
+      specItems.add({'text': 'Semantic Name: ${token['semanticName']}', 'type': 'semantic_name'});
+    }
+    
+    // Add style reference if available
+    if (token['styleReference'] != null) {
+      specItems.add({'text': 'Style Reference: ${token['styleReference']}', 'type': 'style_reference'});
+    }
+    
+    // Add style description if available
+    if (token['styleDescription'] != null && token['styleDescription'].isNotEmpty) {
+      specItems.add({'text': 'Description: ${token['styleDescription']}', 'type': 'description'});
+    }
+    
+    return specItems;
+  }
+  
+  List<Map<String, dynamic>> _buildFigmaVariableSpec(Map<String, dynamic> variable) {
+    final name = variable['name'] ?? 'Unknown';
+    final type = variable['type'] ?? 'Unknown';
+    final description = variable['description'] ?? 'No description';
+    
+    List<Map<String, dynamic>> specItems = [
+      {'text': 'Name: $name', 'type': 'name'},
+      {'text': 'Type: $type', 'type': 'type'},
+      {'text': 'Description: $description', 'type': 'description'},
+    ];
+    
+    // Add values by mode if available
+    if (variable['value'] != null) {
+      specItems.add({'text': 'Values: ${variable['value']}', 'type': 'values'});
+    }
+    
+    // Add scopes if available
+    if (variable['scopes'] != null && variable['scopes'].isNotEmpty) {
+      specItems.add({'text': 'Scopes: ${variable['scopes'].join(', ')}', 'type': 'scopes'});
+    }
+    
+    // Add code syntax if available
+    if (variable['codeSyntax'] != null && variable['codeSyntax'].isNotEmpty) {
+      specItems.add({'text': 'Code Syntax: ${variable['codeSyntax']}', 'type': 'code_syntax'});
+    }
+    
+    return specItems;
+  }
+  
+  List<Map<String, dynamic>> _buildComponentPropertySpec(Map<String, dynamic> component) {
+    final name = component['name'] ?? 'Unknown';
+    final type = component['type'] ?? 'Unknown';
+    final width = component['width'] != null ? '${component['width']}px' : 'Auto';
+    final height = component['height'] != null ? '${component['height']}px' : 'Auto';
+    
+    List<Map<String, dynamic>> specItems = [
+      {'text': 'Name: $name', 'type': 'name'},
+      {'text': 'Type: $type', 'type': 'type'},
+      {'text': 'Dimensions: ${width} × ${height}', 'type': 'dimensions'},
+    ];
+    
+    // Add description if available
+    if (component['description'] != null && component['description'].isNotEmpty) {
+      specItems.add({'text': 'Description: ${component['description']}', 'type': 'description'});
+    }
+    
+    // Add component properties if available
+    if (component['properties'] != null && component['properties'].isNotEmpty) {
+      specItems.add({'text': 'Properties: ${component['properties']}', 'type': 'properties'});
+    }
+    
+    // Add variants if available
+    if (component['variants'] != null && component['variants'].isNotEmpty) {
+      specItems.add({'text': 'Variants: ${component['variants'].length}', 'type': 'variants_count'});
+      for (var variant in component['variants']) {
+        specItems.add({'text': '  - ${variant['name']}: ${variant['variantProperties']}', 'type': 'variant'});
+      }
+    }
+    
+    // Add bound variables if available
+    if (component['boundVariables'] != null && component['boundVariables'].isNotEmpty) {
+      specItems.add({'text': 'Bound Variables: ${component['boundVariables']}', 'type': 'bound_variables'});
+    }
+    
+    return specItems;
   }
 
   void _copyAllSpecs() {
@@ -900,6 +1040,30 @@ class _MyAppState extends State<MyApp> {
       for (final token in designTokens) {
         allSpecs.writeln('• ${token['name']}${token['path'] != null && token['path'].isNotEmpty ? ' [${token['path']}]' : ''}');
         for (final spec in _buildDesignTokenSpec(token)) {
+          allSpecs.writeln('  ${spec['text']}');
+        }
+        allSpecs.writeln();
+      }
+    }
+    
+    if (figmaVariables.isNotEmpty) {
+      allSpecs.writeln('🔧 FIGMA VARIABLES');
+      allSpecs.writeln('─' * 30);
+      for (final variable in figmaVariables) {
+        allSpecs.writeln('• ${variable['name']}');
+        for (final spec in _buildFigmaVariableSpec(variable)) {
+          allSpecs.writeln('  ${spec['text']}');
+        }
+        allSpecs.writeln();
+      }
+    }
+    
+    if (componentProperties.isNotEmpty) {
+      allSpecs.writeln('⚙️ COMPONENT PROPERTIES');
+      allSpecs.writeln('─' * 30);
+      for (final component in componentProperties) {
+        allSpecs.writeln('• ${component['name']}${component['path'] != null && component['path'].isNotEmpty ? ' [${component['path']}]' : ''}');
+        for (final spec in _buildComponentPropertySpec(component)) {
           allSpecs.writeln('  ${spec['text']}');
         }
         allSpecs.writeln();

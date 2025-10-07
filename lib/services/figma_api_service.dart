@@ -77,4 +77,30 @@ class FigmaApiService {
       }
     }
   }
+  
+  // New method to get file with variables (for design system data)
+  Future<Map<String, dynamic>> getFileWithVariables(String fileKey) async {
+    final url = Uri.parse('$baseUrl/files/$fileKey');
+    final response = await http.get(url, headers: {
+      'X-Figma-Token': token,
+    });
+
+    if (response.statusCode == 200) {
+      try {
+        // Check response size to prevent memory issues
+        if (response.bodyBytes.length > 5 * 1024 * 1024) { // 5MB limit
+          throw Exception('File too large (${(response.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)}MB). Please try a specific node or smaller file.');
+        }
+        
+        return jsonDecode(response.body);
+      } catch (e) {
+        if (e is FormatException) {
+          throw Exception('Invalid JSON response from Figma API. The file may be too large or corrupted.');
+        }
+        rethrow;
+      }
+    } else {
+      throw Exception('Failed to load Figma file: ${response.statusCode} - ${response.body}');
+    }
+  }
 }
