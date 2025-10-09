@@ -323,34 +323,69 @@ class _MyAppState extends State<MyApp> {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: Column(
                 children: [
-                  const Icon(Icons.content_copy, size: 32, color: Colors.blue),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
+                    children: [
+                      const Icon(Icons.content_copy, size: 32, color: Colors.blue),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Design Specifications',
+                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Figma specs automatically mapped to Flutter Theme styles',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: _copyAllSpecs,
+                        icon: const Icon(Icons.copy_all, size: 18),
+                        label: const Text('Copy All'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Design Specifications',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          'Match Quality: ',
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: Colors.blue[900],
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(width: 8),
                         Text(
-                          'Copy and paste these specs for your development team',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[600],
-                          ),
+                          '✅ Perfect Match',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '⚠️ Close Match',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                         ),
                       ],
                     ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _copyAllSpecs,
-                    icon: const Icon(Icons.copy_all, size: 18),
-                    label: const Text('Copy All'),
                   ),
                 ],
               ),
@@ -453,9 +488,9 @@ class _MyAppState extends State<MyApp> {
           // Specs sections
           _buildSpecsSection('🎨 Colors', colors, _buildColorSpec),
           const SizedBox(height: 24),
-          _buildSpecsSection('🔤 Text Styles', textStyles, _buildTextStyleSpec),
+          _buildSpecsSection('🔤 Text Styles → Flutter Theme', textStyles, _buildTextStyleSpec),
           const SizedBox(height: 24),
-          _buildSpecsSection('📝 Typography & Ellipses', typographyFromNodes, _buildTypographySpec),
+          _buildSpecsSection('📝 Typography → Flutter Theme', typographyFromNodes, _buildTypographySpec),
           const SizedBox(height: 24),
           _buildSpecsSection('📐 Layout Specs', layouts, _buildLayoutSpec),
         ],
@@ -626,6 +661,103 @@ class _MyAppState extends State<MyApp> {
     ];
   }
 
+  // Helper function to suggest Flutter theme styles
+  Map<String, dynamic> _suggestFlutterTheme(dynamic fontSize, dynamic fontWeight) {
+    final size = fontSize is int ? fontSize : (fontSize is String && fontSize != 'Unknown' ? int.tryParse(fontSize.toString().replaceAll('px', '')) : null);
+    final weight = fontWeight is int ? fontWeight : (fontWeight is String && fontWeight != 'Unknown' ? int.tryParse(fontWeight.toString()) : null);
+    
+    if (size == null) return {'theme': 'Unknown', 'match': 'unknown'};
+    
+    // Flutter Material 3 default text theme sizes and weights
+    // displayLarge: 57px, weight 400
+    // displayMedium: 45px, weight 400
+    // displaySmall: 36px, weight 400
+    // headlineLarge: 32px, weight 400
+    // headlineMedium: 28px, weight 400
+    // headlineSmall: 24px, weight 400
+    // titleLarge: 22px, weight 400
+    // titleMedium: 16px, weight 500-600
+    // titleSmall: 14px, weight 500
+    // bodyLarge: 16px, weight 400
+    // bodyMedium: 14px, weight 400
+    // bodySmall: 12px, weight 400
+    // labelLarge: 14px, weight 500
+    // labelMedium: 12px, weight 500
+    // labelSmall: 11px, weight 500-900
+    
+    String suggestedTheme = 'theme.textTheme.bodyMedium';
+    String matchQuality = 'close';
+    
+    // Display styles (very large text)
+    if (size >= 50) {
+      suggestedTheme = 'theme.textTheme.displayLarge';
+      matchQuality = size == 57 && (weight == null || weight == 400) ? 'perfect' : 'close';
+    } else if (size >= 40) {
+      suggestedTheme = 'theme.textTheme.displayMedium';
+      matchQuality = size == 45 && (weight == null || weight == 400) ? 'perfect' : 'close';
+    } else if (size >= 32) {
+      if (size == 36) {
+        suggestedTheme = 'theme.textTheme.displaySmall';
+        matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+      } else {
+        suggestedTheme = 'theme.textTheme.headlineLarge';
+        matchQuality = size == 32 && (weight == null || weight == 400) ? 'perfect' : 'close';
+      }
+    } 
+    // Headline styles
+    else if (size >= 24) {
+      if (size == 28) {
+        suggestedTheme = 'theme.textTheme.headlineMedium';
+        matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+      } else {
+        suggestedTheme = 'theme.textTheme.headlineSmall';
+        matchQuality = size == 24 && (weight == null || weight == 400) ? 'perfect' : 'close';
+      }
+    } else if (size == 22) {
+      suggestedTheme = 'theme.textTheme.titleLarge';
+      matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+    }
+    // Title styles
+    else if (size == 16) {
+      if (weight != null && weight >= 500) {
+        suggestedTheme = 'theme.textTheme.titleMedium';
+        matchQuality = (weight == 500 || weight == 600) ? 'perfect' : 'close';
+      } else {
+        suggestedTheme = 'theme.textTheme.bodyLarge';
+        matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+      }
+    } else if (size == 14) {
+      if (weight != null && weight >= 500) {
+        if (weight == 500) {
+          suggestedTheme = 'theme.textTheme.titleSmall / labelLarge';
+          matchQuality = 'perfect';
+        } else {
+          suggestedTheme = 'theme.textTheme.labelLarge';
+          matchQuality = 'close';
+        }
+      } else {
+        suggestedTheme = 'theme.textTheme.bodyMedium';
+        matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+      }
+    } else if (size == 12) {
+      if (weight != null && weight >= 500) {
+        suggestedTheme = 'theme.textTheme.labelMedium';
+        matchQuality = weight == 500 ? 'perfect' : 'close';
+      } else {
+        suggestedTheme = 'theme.textTheme.bodySmall';
+        matchQuality = weight == null || weight == 400 ? 'perfect' : 'close';
+      }
+    } else if (size == 11) {
+      suggestedTheme = 'theme.textTheme.labelSmall';
+      matchQuality = weight != null && weight >= 500 ? (weight >= 700 && weight <= 900 ? 'close' : 'perfect') : 'close';
+    } else if (size < 11) {
+      suggestedTheme = 'theme.textTheme.labelSmall';
+      matchQuality = 'close';
+    }
+    
+    return {'theme': suggestedTheme, 'match': matchQuality};
+  }
+
   List<Map<String, dynamic>> _buildTextStyleSpec(Map<String, dynamic> style) {
     final fontSize = style['fontSize'] != null ? '${style['fontSize']}px' : 'Unknown';
     final fontWeight = style['fontWeight'] != null ? '${style['fontWeight']}' : 'Unknown';
@@ -634,7 +766,13 @@ class _MyAppState extends State<MyApp> {
     final letterSpacing = style['letterSpacing'] != null ? '${style['letterSpacing']}px' : 'Normal';
     final textAlign = style['textAlign'] ?? 'Left';
     
+    // Get Flutter theme suggestion
+    final themeMapping = _suggestFlutterTheme(style['fontSize'], style['fontWeight']);
+    final matchIcon = themeMapping['match'] == 'perfect' ? '✅' : 
+                      themeMapping['match'] == 'close' ? '⚠️' : '❓';
+    
     return [
+      {'text': '🎯 Flutter Theme: ${themeMapping['theme']} $matchIcon', 'type': 'flutter_theme'},
       {'text': 'Font Family: $fontFamily', 'type': 'font_family'},
       {'text': 'Font Size: $fontSize', 'type': 'font_size'},
       {'text': 'Font Weight: $fontWeight', 'type': 'font_weight'},
@@ -663,7 +801,13 @@ class _MyAppState extends State<MyApp> {
     final maxLines = typography['maxLines'];
     // final path = typography['path'] != null && typography['path'].isNotEmpty ? ' [${typography['path']}]' : '';
     
+    // Get Flutter theme suggestion
+    final themeMapping = _suggestFlutterTheme(typography['fontSize'], typography['fontWeight']);
+    final matchIcon = themeMapping['match'] == 'perfect' ? '✅' : 
+                      themeMapping['match'] == 'close' ? '⚠️' : '❓';
+    
     List<Map<String, dynamic>> specItems = [
+      {'text': '🎯 Flutter Theme: ${themeMapping['theme']} $matchIcon', 'type': 'flutter_theme'},
       {'text': 'Font Family: $fontFamily', 'type': 'font_family'},
       {'text': 'Font Size: $fontSize', 'type': 'font_size'},
       {'text': 'Font Weight: $fontWeight', 'type': 'font_weight'},
@@ -850,7 +994,7 @@ class _MyAppState extends State<MyApp> {
     }
     
     if (textStyles.isNotEmpty) {
-      allSpecs.writeln('🔤 TEXT STYLES');
+      allSpecs.writeln('🔤 TEXT STYLES → FLUTTER THEME MAPPING');
       allSpecs.writeln('─' * 30);
       for (final style in textStyles) {
         allSpecs.writeln('• ${style['name']}');
@@ -862,7 +1006,7 @@ class _MyAppState extends State<MyApp> {
     }
     
     if (typographyFromNodes.isNotEmpty) {
-      allSpecs.writeln('📝 TYPOGRAPHY & ELLIPSES ANALYSIS');
+      allSpecs.writeln('📝 TYPOGRAPHY → FLUTTER THEME MAPPING');
       allSpecs.writeln('─' * 30);
       for (final typography in typographyFromNodes) {
         allSpecs.writeln('• ${typography['name']}${typography['path'] != null && typography['path'].isNotEmpty ? ' [${typography['path']}]' : ''}');
