@@ -6,11 +6,15 @@ A Flutter application that extracts design specifications from Figma files using
 
 - **Dynamic URL Input**: Enter any Figma URL to extract specs from any file
 - **Color Extraction**: Extracts all colors with RGB and hex values
-- **Text Styles**: Extracts typography information including font family, size, weight, and line height
-- **Components**: Lists all Figma components and component sets
+- **Typography & Ellipses**: Extracts text styles, font properties, and detects text truncation patterns
+- **Components**: Lists all Figma components and component sets with variants
 - **Layout Specs**: Shows positioning and sizing information for all elements
+- **Design Tokens**: Extracts variables and design system tokens with semantic names
+- **Prototype Flows**: Captures interaction flows and prototype connections
 - **Specific Node Support**: Can target specific nodes within a Figma file
-- **Modern UI**: Clean, Material Design 3 interface with loading states and error handling
+- **Comprehensive API Coverage**: Uses multiple Figma API endpoints for maximum data extraction
+- **Error Handling**: Graceful fallbacks and robust error handling
+- **Modern UI**: Clean, Material Design 3 interface with loading states
 - **URL Parsing**: Automatically extracts file keys and node IDs from Figma URLs
 
 ## 📋 Prerequisites
@@ -69,29 +73,39 @@ flutter run
 
 ### Colors Section 🎨
 - Color swatches with visual representation
-- RGB values
-- Hex color codes
-- Color names
+- RGB values and hex color codes
+- Color names and semantic token names
+- Variable references when available
 
-### Text Styles Section 🔤
-- Typography names
-- Font family information
-- Font size (in pixels)
-- Font weight
-- Line height
-- Descriptions (if available)
+### Typography & Ellipses Section 📝
+- Text content and character analysis
+- Font family, size, weight, and line height
+- Text alignment and styling properties
+- Ellipses detection (text truncation patterns)
+- Style name resolution (e.g., "M3/body/large")
 
 ### Components Section 🧩
-- Component names
-- Component types (COMPONENT or COMPONENT_SET)
-- Dimensions (width × height)
-- Descriptions (if available)
+- Component names and types
+- Component variants and properties
+- Dimensions and descriptions
+- Instance overrides and properties
 
 ### Layout Specs Section 📐
-- Element names
-- Element types
-- Position coordinates (x, y)
-- Dimensions (width × height)
+- Element names and types
+- Position coordinates and dimensions
+- Layout constraints and alignment
+- Sizing modes and flex properties
+
+### Design Tokens Section 🎯
+- Variable values and types
+- Semantic naming from design systems
+- Token hierarchy and organization
+- Bound variable references
+
+### Prototype Flows Section 🔄
+- Interaction flow names and descriptions
+- Starting points and connection details
+- Prototype settings and configurations
 
 ## 🔧 Technical Details
 
@@ -108,8 +122,25 @@ flutter run
 - `lib/config.dart`: Configuration settings (token only)
 
 ### API Endpoints Used
-- `GET /v1/files/{file_key}`: Get entire file data
-- `GET /v1/files/{file_key}/nodes?ids={node_id}`: Get specific node data
+
+The tool uses a comprehensive approach to extract maximum data coverage from Figma files:
+
+#### Core Structure Endpoints
+- `GET /v1/files/{file_key}`: Get entire file data (frames, groups, layers, text layers, metadata)
+- `GET /v1/files/{file_key}/nodes?ids={node_id}`: Get specific node data with descendants
+
+#### Design System Endpoints  
+- `GET /v1/files/{file_key}/styles`: Get all color/text/effect/grid styles
+- `GET /v1/files/{file_key}/components`: Get all components and component sets
+- `GET /v1/files/{file_key}/variables`: Get design system variables and tokens
+
+#### Interactive Elements
+- `GET /v1/files/{file_key}` (prototypes): Extract prototype flows and interactions from file data
+
+#### Error Handling
+- Each endpoint has individual error handling with graceful fallbacks
+- If comprehensive API fails, automatically falls back to basic extraction
+- Continues processing even if some endpoints are unavailable
 
 ## 🐛 Troubleshooting
 

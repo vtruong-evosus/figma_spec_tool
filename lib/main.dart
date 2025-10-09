@@ -29,9 +29,7 @@ class _MyAppState extends State<MyApp> {
   List<Map<String, dynamic>> colors = [];
   List<Map<String, dynamic>> textStyles = [];
   List<Map<String, dynamic>> typographyFromNodes = [];
-  List<Map<String, dynamic>> components = [];
   List<Map<String, dynamic>> layouts = [];
-  List<Map<String, dynamic>> designTokens = [];
   
   // Checklist state
   Map<String, bool> checklistItems = {};
@@ -49,33 +47,33 @@ class _MyAppState extends State<MyApp> {
     try {
       Map<String, dynamic> completeSpecs;
       
-      // Use the proper Figma API approach
-      if (nodeId != null && nodeId!.isNotEmpty) {
-        // Convert dash to colon format for API
+      // Use ultra-minimal approach for code generation
+        if (nodeId != null && nodeId!.isNotEmpty) {
         final apiNodeId = nodeId!.replaceAll('-', ':');
-        completeSpecs = await api.fetchCompleteSpecs(fileKey, apiNodeId);
+        completeSpecs = await api.fetchNodeData(fileKey, apiNodeId);
+              } else {
+        throw Exception('Please use a URL with a specific node-id parameter');
+      }
+      
+      // Extract data from node (everything Cursor needs is here)
+      final nodeData = completeSpecs;
+      
+      // Get the actual node document
+      Map<String, dynamic> documentData;
+      if (nodeId != null && nodeId!.isNotEmpty) {
+        final apiNodeId = nodeId!.replaceAll('-', ':');
+        if (nodeData['nodes'] != null && nodeData['nodes'][apiNodeId] != null) {
+          documentData = nodeData['nodes'][apiNodeId]['document'];
+        } else {
+          throw Exception('Unable to retrieve document data from node endpoint');
+        }
       } else {
         throw Exception('Please use a URL with a specific node-id parameter');
       }
       
-      // Extract data from complete specs
-      final nodeData = completeSpecs['node'];
-      final stylesData = completeSpecs['styles'];
-      final variablesData = completeSpecs['variables'];
-      
-      // Get the actual node document
-      final apiNodeId = nodeId!.replaceAll('-', ':');
-      final documentData = nodeData['nodes'][apiNodeId]['document'];
-      
-      
-      // Use the complete specs for parsing
+      // Use the node data for parsing (everything Cursor needs)
       final parseData = {
         'document': documentData,
-        'styles': stylesData['meta']?['styles'] ?? {},
-        'components': nodeData['components'] ?? {},
-        'componentSets': nodeData['componentSets'] ?? {},
-        'stylesData': stylesData,
-        'variablesData': variablesData,
       };
       
       setState(() {
@@ -98,22 +96,11 @@ class _MyAppState extends State<MyApp> {
         }
         
         try {
-          components = FigmaParser.extractComponents(parseData);
-        } catch (e) {
-          components = [];
-        }
-        
-        try {
           layouts = FigmaParser.extractLayoutSpecs(parseData);
         } catch (e) {
           layouts = [];
         }
         
-        try {
-          designTokens = FigmaParser.extractDesignTokens(parseData);
-        } catch (e) {
-          designTokens = [];
-        }
         
         isLoading = false;
         showUrlInput = false;
@@ -178,9 +165,7 @@ class _MyAppState extends State<MyApp> {
       colors.clear();
       textStyles.clear();
       typographyFromNodes.clear();
-      components.clear();
       layouts.clear();
-      designTokens.clear();
       checklistItems.clear();
       errorMessage = null;
       urlController.clear();
@@ -206,32 +191,22 @@ class _MyAppState extends State<MyApp> {
       checklistItems['Text truncation patterns reviewed'] = false;
     }
     
-    if (components.isNotEmpty) {
-      checklistItems['Components extracted'] = false;
-      checklistItems['Components reviewed'] = false;
-    }
     
     if (layouts.isNotEmpty) {
       checklistItems['Layout specs extracted'] = false;
       checklistItems['Spacing reviewed'] = false;
     }
     
-    if (designTokens.isNotEmpty) {
-      checklistItems['Design tokens extracted'] = false;
-      checklistItems['Design system reviewed'] = false;
-    }
     
-    // General UX checklist items
+    // Code generation checklist items
     checklistItems['Design specs extracted'] = false;
-    checklistItems['UI components identified'] = false;
-    checklistItems['Color palette documented'] = false;
-    checklistItems['Typography system documented'] = false;
-    checklistItems['Spacing system documented'] = false;
-    checklistItems['Component library reviewed'] = false;
-    checklistItems['Design tokens documented'] = false;
-    checklistItems['Accessibility considerations noted'] = false;
+    checklistItems['Color values documented'] = false;
+    checklistItems['Typography properties documented'] = false;
+    checklistItems['Layout measurements documented'] = false;
+    checklistItems['Text truncation patterns checked'] = false;
+    checklistItems['Layout constraints verified'] = false;
+    checklistItems['Component structure analyzed'] = false;
     checklistItems['Responsive behavior documented'] = false;
-    checklistItems['Interaction states documented'] = false;
   }
 
 
@@ -398,9 +373,9 @@ class _MyAppState extends State<MyApp> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text('Colors: ${colors.length} | Text Styles: ${textStyles.length} | Typography Nodes: ${typographyFromNodes.length} | Components: ${components.length} | Layouts: ${layouts.length} | Design Tokens: ${designTokens.length}'),
+                  Text('Colors: ${colors.length} | Text Styles: ${textStyles.length} | Typography Nodes: ${typographyFromNodes.length} | Layouts: ${layouts.length}'),
                   const SizedBox(height: 4),
-                  Text('Total nested elements found: ${colors.length + textStyles.length + typographyFromNodes.length + components.length + layouts.length + designTokens.length}'),
+                  Text('Total elements found: ${colors.length + textStyles.length + typographyFromNodes.length + layouts.length}'),
                 ],
               ),
             ),
@@ -482,11 +457,7 @@ class _MyAppState extends State<MyApp> {
           const SizedBox(height: 24),
           _buildSpecsSection('📝 Typography & Ellipses', typographyFromNodes, _buildTypographySpec),
           const SizedBox(height: 24),
-          _buildSpecsSection('🧩 Components', components, _buildComponentSpec),
-          const SizedBox(height: 24),
           _buildSpecsSection('📐 Layout Specs', layouts, _buildLayoutSpec),
-          const SizedBox(height: 24),
-          _buildSpecsSection('🎯 Design Tokens', designTokens, _buildDesignTokenSpec),
         ],
       ),
     );
@@ -746,38 +717,6 @@ class _MyAppState extends State<MyApp> {
     return specItems;
   }
 
-  List<Map<String, dynamic>> _buildComponentSpec(Map<String, dynamic> component) {
-    final width = component['width'] != null ? '${component['width']}px' : 'Auto';
-    final height = component['height'] != null ? '${component['height']}px' : 'Auto';
-    final layoutMode = component['layoutMode'] ?? 'None';
-    // final path = (component['path']?.isNotEmpty ?? false) ? ' [${component['path']}]' : '';
-    
-    List<Map<String, dynamic>> specItems = [
-      {'text': 'Type: ${component['type']}', 'type': 'type'},
-      {'text': 'Dimensions: $width × $height', 'type': 'dimensions'},
-      {'text': 'Layout Mode: $layoutMode', 'type': 'layout_mode'},
-    ];
-    
-    if (component['description'] != null && component['description'].isNotEmpty) {
-      specItems.add({'text': 'Description: ${component['description']}', 'type': 'description'});
-    }
-    
-    if (component['variants'] != null && component['variants'].isNotEmpty) {
-      specItems.add({'text': 'Variants: ${component['variants'].length}', 'type': 'variants_count'});
-      for (var variant in component['variants']) {
-        specItems.add({'text': '  - ${variant['name']}', 'type': 'variant'});
-      }
-    }
-    
-    if (component['children'] != null && component['children'].isNotEmpty) {
-      specItems.add({'text': 'Nested Components: ${component['children'].length}', 'type': 'children_count'});
-      for (var child in component['children']) {
-        specItems.add({'text': '  - ${child['name']} (${child['type']})', 'type': 'child'});
-      }
-    }
-    
-    return specItems;
-  }
 
   List<Map<String, dynamic>> _buildLayoutSpec(Map<String, dynamic> layout) {
     final width = layout['width'] != null ? '${layout['width']}px' : 'Auto';
@@ -886,17 +825,8 @@ class _MyAppState extends State<MyApp> {
     return specItems;
   }
 
-  List<Map<String, dynamic>> _buildDesignTokenSpec(Map<String, dynamic> token) {
-    final value = token['value'] ?? 'Unknown';
-    final type = token['type'] ?? 'Unknown';
-    final path = token['path'] != null && token['path'].isNotEmpty ? ' [${token['path']}]' : '';
-    
-    return [
-      {'text': 'Value: $value', 'type': 'value'},
-      {'text': 'Type: $type', 'type': 'type'},
-      {'text': 'Depth: ${token['depth'] ?? 0}', 'type': 'depth'},
-    ];
-  }
+
+
 
   void _copyAllSpecs() {
     final allSpecs = StringBuffer();
@@ -943,17 +873,6 @@ class _MyAppState extends State<MyApp> {
       }
     }
     
-    if (components.isNotEmpty) {
-      allSpecs.writeln('🧩 COMPONENT LIBRARY');
-      allSpecs.writeln('─' * 30);
-      for (final component in components) {
-        allSpecs.writeln('• ${component['name']}${component['path'] != null && component['path'].isNotEmpty ? ' [${component['path']}]' : ''}');
-        for (final spec in _buildComponentSpec(component)) {
-          allSpecs.writeln('  ${spec['text']}');
-        }
-        allSpecs.writeln();
-      }
-    }
     
     if (layouts.isNotEmpty) {
       allSpecs.writeln('📐 LAYOUT SPECIFICATIONS');
@@ -967,17 +886,7 @@ class _MyAppState extends State<MyApp> {
       }
     }
     
-    if (designTokens.isNotEmpty) {
-      allSpecs.writeln('🎯 DESIGN TOKENS');
-      allSpecs.writeln('─' * 30);
-      for (final token in designTokens) {
-        allSpecs.writeln('• ${token['name']}${token['path'] != null && token['path'].isNotEmpty ? ' [${token['path']}]' : ''}');
-        for (final spec in _buildDesignTokenSpec(token)) {
-          allSpecs.writeln('  ${spec['text']}');
-        }
-        allSpecs.writeln();
-      }
-    }
+    
     
     // Footer
     allSpecs.writeln('=' * 50);
@@ -986,9 +895,9 @@ class _MyAppState extends State<MyApp> {
     Clipboard.setData(ClipboardData(text: allSpecs.toString()));
     // Use a try-catch to handle ScaffoldMessenger issues
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All specs copied to clipboard!')),
-      );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('All specs copied to clipboard!')),
+    );
     } catch (e) {
       // Ignore snackbar errors
     }

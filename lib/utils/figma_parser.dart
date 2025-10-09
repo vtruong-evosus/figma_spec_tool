@@ -165,7 +165,7 @@ class FigmaParser {
               (c['b'] * 255).round(),
             );
             
-            // Avoid duplicates by using hex as key
+            // Avoid duplicates by using hex and name as key (more aggressive deduplication)
             final colorKey = '${hex}_${node['name']}';
             if (!processedColors.contains(colorKey)) {
               processedColors.add(colorKey);
@@ -283,8 +283,17 @@ class FigmaParser {
 
   static List<Map<String, dynamic>> extractLayoutSpecs(Map<String, dynamic> file) {
     final layouts = <Map<String, dynamic>>[];
+    final seenLayouts = <String>{};
     
     void parseNode(Map node, String parentPath, int depth) {
+      final nodeId = node['id'] ?? '';
+      final uniqueKey = '${node['name']}_${node['type']}_${parentPath}';
+      
+      // Skip if we've already seen this exact layout element
+      if (seenLayouts.contains(uniqueKey)) {
+        return;
+      }
+      seenLayouts.add(uniqueKey);
       // Capture ALL nodes, not just those with bounding boxes
       final layoutData = {
         'name': node['name'] ?? 'Unnamed Element',
@@ -523,6 +532,7 @@ class FigmaParser {
   // Method to extract typography with style resolution
   static List<Map<String, dynamic>> extractTypographyWithStyles(Map<String, dynamic> file) {
     final typography = <Map<String, dynamic>>[];
+    final seenElements = <String>{};
     final stylesData = file['stylesData'];
     
     if (stylesData == null || stylesData['meta']?['styles'] == null) {
@@ -537,13 +547,23 @@ class FigmaParser {
       }
     }
     
-    // Now traverse the document to find TEXT nodes
+    // Now traverse the document to find TEXT nodes with deduplication
     void parseNode(Map<String, dynamic> node, String parentPath, [int depth = 0]) {
       if (node['type'] == 'TEXT') {
         final style = node['style'];
         final characters = node['characters'] ?? '';
         final textStyleId = style?['textStyleId'];
+        final nodeId = node['id'] ?? '';
         
+        // Simple aggressive deduplication: group by content and styling
+        // This will deduplicate identical content with identical styling
+        final uniqueKey = '${characters}_${style?['fontFamily']}_${style?['fontSize']}_${style?['fontWeight']}';
+        
+        // Skip if we've already seen this exact element
+        if (seenElements.contains(uniqueKey)) {
+          return;
+        }
+        seenElements.add(uniqueKey);
         
         // Resolve the style name
         String styleName = 'Unknown Style';
@@ -722,7 +742,27 @@ class FigmaParser {
     return variables;
   }
   
-  // Extract Component Properties and Variants
+  // Extract Prototype Flows and Interactions
+  static List<Map<String, dynamic>> extractPrototypes(Map<String, dynamic> file) {
+    final prototypes = <Map<String, dynamic>>[];
+    final prototypesData = file['prototypes'];
+    
+    if (prototypesData != null) {
+      prototypesData.forEach((key, prototype) {
+        prototypes.add({
+          'id': key,
+          'name': prototype['name'],
+          'description': prototype['description'] ?? '',
+          'flowStartingPoints': prototype['flowStartingPoints'] ?? [],
+          'settings': prototype['settings'] ?? {},
+        });
+      });
+    }
+    
+    return prototypes;
+  }
+  
+  // Extract Component Properties and Variants (Enhanced)
   static List<Map<String, dynamic>> extractComponentProperties(Map<String, dynamic> file) {
     final properties = <Map<String, dynamic>>[];
     
